@@ -106,6 +106,8 @@ MicroTripServerJava/
 > 完整的环境搭建、部署与运维说明见 **[docs/部署指南.md](docs/部署指南.md)**，本节只给最短路径。
 > 本机 Windows **无 Docker** 部署（MySQL/Redis 本地安装、Profile 矩阵、日志监控、备份与排障）
 > 见 **[docs/本地环境运维手册.md](docs/本地环境运维手册.md)**。
+> 数据库日常操作（初始化/导入导出/脏数据清理/数据清洗）脚本集见
+> **[docs/数据库操作指南.md](docs/数据库操作指南.md)**。
 
 ### 4.0 先跑环境自检
 ```bash
