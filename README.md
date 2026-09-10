@@ -321,7 +321,7 @@ java -jar target/micro-trip-server-boot.jar --microtrip.vision.provider=baidu \
 | 鉴权 | 自写 `requireAuth` 中间件 | Spring Security 无状态 JWT 过滤器链 |
 | 登出/封禁 | 仅客户端丢弃 token | 服务端 `RevocationService` 黑名单：主动登出吊销令牌、管理员封禁用户（Redis/内存双实现） |
 | Vision | 腾讯云调用 | `VisionProvider` 抽象 + 按 `microtrip.vision.provider` 注入 tencent/aliyun/baidu（未配置即 501） |
-| 自动化测试 | 无 | Spring Boot 测试 62 用例：`ApiContractTest`（19，v1 契约与演进项）+ `TrajectoryOptimizationTest`（13，性能治理回归）+ `IpAllowListTest`（17，Actuator 白名单纯逻辑）+ `ActuatorAccessTest`（12，访问控制端到端）+ `RateLimitTest`（1） |
+| 自动化测试 | 无 | Spring Boot 测试 68 用例：`ApiContractTest`（19，v1 契约与演进项）+ `TrajectoryOptimizationTest`（13，性能治理回归）+ `StatsClientContractTest`（6，stats 客户端字段契约）+ `IpAllowListTest`（17，Actuator 白名单纯逻辑）+ `ActuatorAccessTest`（12，访问控制端到端）+ `RateLimitTest`（1） |
 | 静态数据 | 运行时读 JSON 文件 | 启动时加载 classpath 资源 + 按城市缓存「已注入」结果 |
 | 接口版本化 | 无 | 业务接口同时暴露 `/api/v1/...`（规范）与历史裸路径（Flutter 零改动兼容），为不兼容升级预留空间 |
 | 数据落库 | `points_json` 单 JSON 列 | 保留 `points_json`（契约规范存储）外，新增独立 `trajectory_points` 表，支持 SQL 侧范围检索/密度统计，删轨迹/注销均级联清理 |
