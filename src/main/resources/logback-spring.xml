@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logback 配置（Spring Boot 约定名 logback-spring.xml）：
+  - 默认（非 json profile）：控制台 + 文件均为「普通文本」，等价 Spring Boot 默认行为，零破坏。
+  - 激活 json profile（即 spring.profiles.active=json）：控制台输出 Logstash JSON 结构化日志，
+    便于 ELK / Loki 等集中采集。
+  - 文件 appender（application.log）始终保持文本，方便本地排查，不受 profile 影响。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <property name="LOG_FILE" value="${LOG_FILE:-application.log}"/>
+
+    <!-- 普通文本控制台：复用 Spring Boot defaults.xml 注册的 %clr 颜色 converter 与 PID -->
+    <appender name="CONSOLE_TEXT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN:-%clr(%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(%-40.40logger{39}){cyan} %clr(%m%n)}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- JSON 控制台（仅 json profile）：LogstashEncoder 输出 ECS 友好结构 -->
+    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <!-- 携带链路追踪字段（若接入 Micrometer Tracing 会自动填充 MDC） -->
+            <includeMdcKeyName>traceId</includeMdcKeyName>
+            <includeMdcKeyName>spanId</includeMdcKeyName>
+            <!-- 追加应用标识，便于多服务日志分流 -->
+            <customFields>{"app":"micro-trip-server"}</customFields>
+        </encoder>
+    </appender>
+
+    <!-- 滚动文件：文本，本地排查用 -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p ${PID:- } %-40.40logger{39} %m%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="FILE"/>
+        <springProfile name="json">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </springProfile>
+        <springProfile name="!json">
+            <appender-ref ref="CONSOLE_TEXT"/>
+        </springProfile>
+    </root>
+</configuration>

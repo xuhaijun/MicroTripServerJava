@@ -1,0 +1,44 @@
+# ==================== 构建产物 ====================
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# ==================== 本地运行时数据与密钥 ====================
+# H2 文件库（本地开发自动生成，不应入库）
+data/
+# JWT 密钥（启动时随机生成并持久化，泄露等于所有令牌可伪造）
+.jwt_secret
+# 本地环境变量（含数据库密码 / 云厂商 AK/SK）
+.env
+.env.local
+# TLS 证书与私钥
+*.p12
+*.jks
+*.pem
+*.key
+
+# ==================== 运行时目录 ====================
+# 容器数据卷（docker-compose 挂载点）
+docker/volumes/
+logs/
+*.log
+application.log
+application.log.*
+
+# ==================== IDE ====================
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+nbproject/
+
+# ==================== 系统 ====================
+.DS_Store
+Thumbs.db
+desktop.ini

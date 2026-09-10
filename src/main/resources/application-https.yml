@@ -1,0 +1,26 @@
+# HTTPS 强制 profile（激活：--spring.profiles.active=https）
+#
+# 作用：
+#   1) microtrip.security.require-https=true → SecurityFilterChain 对所有请求 requiresSecure()，
+#      非 HTTPS 访问被重定向到 https（依赖反向代理转发 X-Forwarded-*，见 forward-headers-strategy）。
+#   2) server.forward-headers-strategy=native → 信任前置 Nginx / 网关转发的 X-Forwarded-Proto 等头，
+#      Spring Security 据此判断「安全通道」。
+#   3) server.ssl.* → 启用容器级 TLS。以下为占位，生产请换成真实 keystore（证书/私钥）。
+#
+# 证书获取（任选其一）：
+#   - 自有域名：Let's Encrypt 签发，keytool 转 PKCS12：
+#       keytool -importkeystore -srckeystore fullchain.pem ... -destkeystore microtrip.p12 -deststoretype PKCS12
+#   - 云厂商：CLB / 网关卸载 TLS，后端仅监听 HTTP，并设置 forward-headers-strategy=native（已配）。
+#      此场景下可不加 server.ssl.*，仅靠 require-https + 网关强制 HTTPS 即可。
+server:
+  forward-headers-strategy: native
+  # ssl:                       # 仅「后端直接终止 TLS」时启用；由 KMS/配置中心注入密钥，勿硬编码
+  #   enabled: true
+  #   key-store: ${SSL_KEYSTORE_PATH:classpath:microtrip.p12}
+  #   key-store-password: ${SSL_KEYSTORE_PASSWORD}
+  #   key-store-type: PKCS12
+  #   key-alias: microtrip
+
+microtrip:
+  security:
+    require-https: true

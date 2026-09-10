@@ -1,0 +1,15 @@
+# Redis profile 配置（激活：--spring.profiles.active=redis）
+# 启用后 RevocationService 切换为 RedisRevocationService，吊销信息跨实例共享。
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      # 如有密码：password: ${REDIS_PASSWORD:}
+      # 如需指定库：database: ${REDIS_DB:0}
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 8
+          max-idle: 8
+          min-idle: 1

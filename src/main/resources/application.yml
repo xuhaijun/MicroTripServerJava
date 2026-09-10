@@ -1,0 +1,127 @@
+server:
+  port: 3000
+  # ---------- 响应压缩 ----------
+  # 轨迹详情接口会把整条轨迹的 GPS 点（最长 20000 个，JSON 数 MB）一次性返回，
+  # 而 JSON 的文本压缩比通常能到 8~15 倍：开启后带宽与首屏等待都显著下降。
+  # 只压缩超过 1KB 的响应，避免为几个字节的小响应白付压缩 CPU。
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
+
+spring:
+  application:
+    name: micro-trip-server
+  # ---------- 默认数据源：文件型 H2（零外部依赖，开箱即用） ----------
+  datasource:
+    # 文件型 H2：首次启动自动建库，JVM 存活期间保持连接（DB_CLOSE_DELAY=-1）
+    # 注意：H2 2.x 不允许 AUTO_SERVER 与 DB_CLOSE_ON_EXIT 同时出现
+    url: jdbc:h2:file:./data/microtrip;DB_CLOSE_DELAY=-1;AUTO_RECONNECT=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+    # ---------- 连接池（HikariCP）----------
+    # 显式配置而非依赖默认值，原因：默认 pool 10 连接、连接超时 30s，
+    # 一旦慢查询堆积，客户端要干等 30 秒才收到失败；这里收敛为 3 秒快速失败，
+    # 并给池设一个与「同步接口会写万级点」相称的上限。
+    hikari:
+      pool-name: microtrip-hikari
+      maximum-pool-size: ${DB_POOL_MAX:20}     # 峰值并发连接数
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}      # 常驻空闲连接，避免突发流量时现开连接
+      connection-timeout: 3000                 # 取连接超时 3s（宁可快速失败，不无限排队）
+      validation-timeout: 2000                 # 连接可用性校验
+      idle-timeout: 600000                     # 空闲 10 分钟回收
+      max-lifetime: 1800000                    # 连接最长存活 30 分钟（小于 MySQL wait_timeout）
+  jpa:
+    hibernate:
+      ddl-auto: update          # 首次启动自动建表（users / trajectories）
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        # ---------- JDBC 批量写入（轨迹同步性能关键）----------
+        # 一条轨迹最多 20000 个 GPS 点，未开启批量时 = 20000 次单条 INSERT + 20000 次网络往返；
+        # 开启后合并为每 500 条一批（40 次往返），实测写入耗时下降一个数量级。
+        jdbc:
+          batch_size: 500
+          # 让同一批 INSERT 的 SQL 完全一致，才能被驱动真正合并（顺序打乱会退化为逐条）
+          order_inserts: true
+          order_updates: true
+          # 允许对带版本列的实体也批量提交（本项目无 @Version，开启无副作用、向后兼容）
+          batch_versioned_data: true
+  # 静态只读接口缓存（food / scenery）命中 5 分钟，对应 Node 版 Cache-Control
+  # 由 StaticCacheInterceptor 处理，此处仅作说明
+
+
+# ---------- 监控 / 可观测性（Actuator + Micrometer / Prometheus） ----------
+management:
+  endpoints:
+    web:
+      exposure:
+        # 默认暴露基础端点；prometheus / metrics 供监控系统拉取
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+  # 给所有指标追加应用维度，便于多实例/多服务在监控面板区分
+  metrics:
+    tags:
+      application: ${spring.application.name:micro-trip-server}
+  # Prometheus 采用 pull（scrape）模型：由 micrometer-registry-prometheus 暴露
+  # /actuator/prometheus 端点供 Prometheus 主动拉取，无需额外 export 配置。
+  # 若需推送到 Pushgateway，再启用 management.prometheus.metrics.export.enabled。
+
+# ---------- 自定义业务配置 ----------
+microtrip:
+  jwt:
+    # 优先级：环境变量 JWT_SECRET > 文件 .jwt_secret > 启动时随机生成并持久化
+    secret: ${JWT_SECRET:}
+    expires-in-seconds: 2592000     # 30 天，与 App 端 AuthService.tokenTtl 对齐
+    # 生产强制外部化：true 时若未通过 JWT_SECRET 注入密钥则启动失败（fail-fast），
+    # 配合 prod profile 开启，密钥由 KMS / 配置中心注入（密钥托管要求）。默认 false。
+    require-externalized: ${JWT_REQUIRE_EXTERNALIZED:false}
+  cors:
+    allowed-origin: ${CORS_ORIGIN:*} # App 原生请求无 Origin，默认放行
+  # 安全加固开关
+  security:
+    require-https: ${REQUIRE_HTTPS:false}   # true 时（建议配合 https profile）强制全站 HTTPS
+  # 主动登出 / 封禁（见 RevocationService）
+  #   - 默认（非 redis profile）使用内存实现，单实例可用
+  #   - 激活 redis profile（--spring.profiles.active=redis）改用 Redis，跨实例共享
+  admin:
+    # 角色化封禁（演进）：管理员账号由 JWT role=ADMIN 决定，不再使用 X-Admin-Token。
+    # 启动可按以下配置注入一个管理员（生产建议由 IdP / OAuth2 授予 ADMIN 角色，留空不自动创建）：
+    bootstrap:
+      phone: ${ADMIN_BOOTSTRAP_PHONE:}
+      password: ${ADMIN_BOOTSTRAP_PASSWORD:}
+      nickname: ${ADMIN_BOOTSTRAP_NICKNAME:超级管理员}
+  # 登录 / 注册限流（防爆破）：固定窗口内存实现，多实例生产建议换 Redis 令牌桶
+  ratelimit:
+    enabled: ${RATELIMIT_ENABLED:true}
+    capacity: ${RATELIMIT_CAPACITY:60}       # 窗口内最大请求数
+    window-seconds: ${RATELIMIT_WINDOW:60}   # 窗口时长（秒）
+  vision:
+    # 当前生效的识别厂商：tencent（默认）| aliyun | baidu
+    provider: ${VISION_PROVIDER:tencent}
+    # 腾讯云图像分析（tiia）密钥；缺失则 /vision/recognize 返回 501 NOT_CONFIGURED
+    tencent:
+      secret-id: ${VISION_SECRET_ID:}
+      secret-key: ${VISION_SECRET_KEY:}
+      region: ${VISION_REGION:ap-guangzhou}
+    # 阿里云图像识别（imagerecog · TaggingImage）密钥
+    aliyun:
+      access-key-id: ${ALIYUN_AK:}
+      access-key-secret: ${ALIYUN_SK:}
+      region: ${ALIYUN_REGION:cn-shanghai}
+    # 百度图像识别（AIP · advanced_general）密钥
+    baidu:
+      api-key: ${BAIDU_API_KEY:}
+      secret-key: ${BAIDU_SECRET_KEY:}
+
+# OpenAPI / Swagger UI
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  api-docs:
+    path: /v3/api-docs

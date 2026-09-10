@@ -1,0 +1,47 @@
+# ============================================================
+# 换行符规范化
+# ------------------------------------------------------------
+# 背景：本机 Git for Windows 系统级 core.autocrlf=true，
+# 检出时会把所有文本文件转成 CRLF。对 Java/YAML 无害，但对
+# 部署脚本是致命的：带 \r 的 shell 脚本在 Linux 上会报
+#   /bin/bash^M: bad interpreter: No such file or directory
+# 因此这里显式声明「仓库内一律 LF」，Windows 批处理除外。
+# ============================================================
+* text=auto eol=lf
+
+# shell / 容器 / 编排 / 服务定义 —— 必须 LF
+*.sh            text eol=lf
+*.bash          text eol=lf
+Dockerfile      text eol=lf
+Dockerfile.*    text eol=lf
+*.dockerfile    text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.service       text eol=lf
+*.conf          text eol=lf
+*.env           text eol=lf
+.env.example    text eol=lf
+Makefile        text eol=lf
+
+# Windows 脚本 —— 必须 CRLF（cmd.exe 对 LF 兼容性差）
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# ---------- 二进制（禁止任何转换，否则文件损坏）----------
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.jar   binary
+*.war   binary
+*.gz    binary
+*.zip   binary
+*.p12   binary
+*.jks   binary
+*.pdf   binary
+
+# ---------- 语言统计：声明这些是文档而非「源码」 ----------
+docs/*.md       linguist-documentation
+*.md            linguist-detectable=false
