@@ -1,0 +1,84 @@
+# ============================================================
+# 微旅途后端 · systemd 服务单元（裸机 / 云主机部署，非容器方式）
+# ------------------------------------------------------------
+# 安装：
+#   sudo cp deploy/systemd/micro-trip-server.service /etc/systemd/system/
+#   sudo cp deploy/systemd/micro-trip-server.env.example /etc/microtrip/server.env
+#   sudo vim /etc/microtrip/server.env      # 填真实密钥，然后 chmod 600
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now micro-trip-server
+#
+# 常用命令：
+#   systemctl status micro-trip-server
+#   journalctl -u micro-trip-server -f
+#   systemctl restart micro-trip-server
+# ============================================================
+
+[Unit]
+Description=微旅途后端服务 (MicroTripServer)
+Documentation=https://github.com/xuhaijun/MicroTripServerJava
+# 数据库/缓存不在本单元管理，用 Wants 而非 Requires：
+# 网络依赖用 network-online.target 保证 DNS 就绪
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ---------- 运行身份 ----------
+# 专用低权限账号，禁止登录：即使服务被攻破也拿不到交互式 shell
+# 创建：sudo useradd -r -s /usr/sbin/nologin -d /opt/microtrip microtrip
+User=microtrip
+Group=microtrip
+WorkingDirectory=/opt/microtrip
+
+# ---------- 环境变量 ----------
+# 密钥集中在 EnvironmentFile 中，文件权限 600、属主 root
+EnvironmentFile=/etc/microtrip/server.env
+
+# ---------- 启动命令 ----------
+# exec 由 systemd 直接完成（Type=simple），java 即主进程，SIGTERM 直达
+ExecStart=/usr/bin/java \
+    -XX:MaxRAMPercentage=75 \
+    -XX:+UseG1GC \
+    -XX:+ExitOnOutOfMemoryError \
+    -Duser.timezone=Asia/Shanghai \
+    -jar /opt/microtrip/app.jar
+
+# ---------- 停机 ----------
+# 与 server.shutdown=graceful 配合：先发 SIGTERM 让应用把在途请求（尤其
+# 轨迹批量同步）处理完，30 秒仍未退出才强杀。
+KillSignal=SIGTERM
+TimeoutStopSec=40
+
+# ---------- 重启策略 ----------
+Restart=always
+RestartSec=10
+# 5 分钟内重启超过 5 次则停止重试：防止配置写错时无限重启刷爆日志
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# ---------- 日志 ----------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=micro-trip-server
+
+# ---------- 沙箱加固 ----------
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# 可写路径仅限数据与日志目录（H2 文件库默认落在 WorkingDirectory/data）
+ReadWritePaths=/opt/microtrip/data /var/log/microtrip
+
+# ---------- 资源约束 ----------
+# 防止内存泄漏拖垮宿主机；配合 -XX:+ExitOnOutOfMemoryError，
+# 触顶后进程主动退出并由 Restart=always 拉起，比僵死更可控。
+MemoryMax=1500M
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target

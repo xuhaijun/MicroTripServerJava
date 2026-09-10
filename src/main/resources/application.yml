@@ -1,5 +1,5 @@
 server:
-  port: 3000
+  port: ${SERVER_PORT:3000}
   # ---------- 响应压缩 ----------
   # 轨迹详情接口会把整条轨迹的 GPS 点（最长 20000 个，JSON 数 MB）一次性返回，
   # 而 JSON 的文本压缩比通常能到 8~15 倍：开启后带宽与首屏等待都显著下降。
@@ -63,6 +63,12 @@ management:
   endpoint:
     health:
       show-details: never
+      # 显式开启 liveness / readiness 子端点：
+      #   - 容器 HEALTHCHECK 用的是 /actuator/health/liveness（不探测数据库依赖）
+      #   - Spring Boot 仅在使用 K8s 时默认开启，非 K8s（Docker Compose / systemd）下
+      #     该端点会 404，导致健康检查静默失效 —— 所以这里必须显式打开。
+      probes:
+        enabled: true
   # 给所有指标追加应用维度，便于多实例/多服务在监控面板区分
   metrics:
     tags:
@@ -85,6 +91,15 @@ microtrip:
   # 安全加固开关
   security:
     require-https: ${REQUIRE_HTTPS:false}   # true 时（建议配合 https profile）强制全站 HTTPS
+    # ---------- Actuator 指标端点的来源 IP 白名单 ----------
+    # 生效范围：/actuator/** 中除 health / info 之外的端点（metrics、prometheus 等）。
+    #   - 默认仅本机（含 IPv6 回环），即「同机部署的 Prometheus 才能拉取指标」
+    #   - 支持精确 IP 与 IPv4 CIDR，如：127.0.0.1,10.0.0.0/8,172.17.0.0/16
+    #   - 留空 = 谁都不放行（刻意的 fail-closed，配置漏填表现为拒绝而非敞开）
+    #   - 判定只依据 TCP 来源地址，不读 X-Forwarded-For，避免伪造头绕过
+    # 注意：不要指望用 management.server.address 做这件事 —— 它必须配合
+    #      自定义 management.server.port 才生效，否则是空操作。
+    actuator-allow-list: ${ACTUATOR_ALLOW_LIST:127.0.0.1,::1}
   # 主动登出 / 封禁（见 RevocationService）
   #   - 默认（非 redis profile）使用内存实现，单实例可用
   #   - 激活 redis profile（--spring.profiles.active=redis）改用 Redis，跨实例共享

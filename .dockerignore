@@ -1,0 +1,53 @@
+# ============================================================
+# 构建上下文排除清单
+# ------------------------------------------------------------
+# 作用有两个：一是缩小传给 Docker daemon 的上下文（本项目 target/ 有几百 MB），
+# 二是防止密钥/本地数据被 COPY 进镜像层 —— 镜像层是永久留存的，
+# 一旦 .env 或 .jwt_secret 进了镜像，即使后续删除该文件，
+# 仍可从历史层里 `docker save` 提取出来。
+# ============================================================
+
+# ---------- 构建产物（镜像内会重新编译）----------
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.war
+
+# ---------- 版本控制与 IDE ----------
+.git/
+.gitignore
+.gitattributes
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# ---------- 密钥与本地数据（绝对禁止进入镜像）----------
+.env
+.env.local
+.jwt_secret
+*.p12
+*.jks
+*.pem
+*.key
+data/
+docker/volumes/
+
+# ---------- 日志 ----------
+logs/
+*.log
+application.log*
+*.gz
+
+# ---------- 文档与脚本（运行期不需要）----------
+docs/
+README.md
+CHANGELOG.md
+scripts/
+deploy/
+docker-compose*.yml
+Dockerfile
+.dockerignore

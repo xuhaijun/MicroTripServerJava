@@ -1,0 +1,80 @@
+# ============================================================
+# 本地开发基础设施 · MySQL 8 + Redis 7
+# ------------------------------------------------------------
+# 定位：只跑「外部依赖」，应用本身用 scripts/dev.sh 在 IDE 里跑，
+#       这样改代码可以热重启，调试器也能直接挂上去。
+#
+# 用法：
+#   ./scripts/infra.sh up      # 起 MySQL + Redis
+#   ./scripts/infra.sh status  # 看健康状态
+#   ./scripts/infra.sh down    # 停（保留数据）
+#   ./scripts/infra.sh reset   # 停并删卷（数据清空）
+#
+# 为什么不把应用也放进这个文件：开发期应用要频繁重启并挂调试器，
+# 放在容器里每次都要重新构建镜像，反而更慢。生产编排见
+# docker-compose.prod.yml。
+# ============================================================
+
+name: microtrip-dev
+
+services:
+  # ---------------- MySQL ----------------
+  mysql:
+    image: mysql:8.0
+    container_name: microtrip-mysql
+    restart: unless-stopped
+    command:
+      # utf8mb4 而非 utf8：昵称/地名可能含 emoji，utf8（3 字节）会写入失败
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # 轨迹同步是批量写，加大 InnoDB 日志缓冲可显著减少刷盘次数
+      - --innodb-log-buffer-size=64M
+      - --max-connections=200
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-microtrip}
+      MYSQL_USER: ${MYSQL_USER:-microtrip}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-microtrip123}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # mysqladmin ping 只证明端口通；真正可用要等 initialize 完成，
+      # 故用 mysqladmin + 密码实际建连探测
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------------- Redis ----------------
+  redis:
+    image: redis:7-alpine
+    container_name: microtrip-redis
+    restart: unless-stopped
+    command:
+      # appendonly 开启 AOF：令牌吊销名单是安全数据，掉电丢失等于「已登出的 token 复活」
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mysql-data:
+    name: microtrip-mysql-data
+  redis-data:
+    name: microtrip-redis-data

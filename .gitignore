@@ -23,6 +23,8 @@ data/
 # 容器数据卷（docker-compose 挂载点）
 docker/volumes/
 logs/
+# 本地生产态运行的进程文件与输出（run-local.sh 生成）
+.run/
 *.log
 application.log
 application.log.*

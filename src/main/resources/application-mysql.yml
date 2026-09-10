@@ -1,25 +1,34 @@
-# MySQL Profile 配置
-# 激活方式：java -jar micro-trip-server.jar --spring.profiles.active=mysql
-# 或环境变量：SPRING_PROFILES_ACTIVE=mysql
+# ============================================================
+# MySQL Profile（激活：--spring.profiles.active=mysql）
+# ------------------------------------------------------------
+# 与 redis profile 正交，可组合：mysql,redis,prod
+# 主机/端口/库名全部支持环境变量注入 —— 容器编排下 DB_HOST 必须指向
+# 服务名（如 mysql）而非 localhost，硬编码 localhost 会直接连不上。
+# ============================================================
 spring:
   datasource:
     # rewriteBatchedStatements=true 是 MySQL 侧 JDBC 批量的**前提**：
     # 不加这一项，驱动会把 batch 里的每条 INSERT 拆成独立语句逐条发送，
-    # 上面的 hibernate.jdbc.batch_size 就白配了（轨迹同步 2 万点场景差异达数十倍）。
+    # hibernate.jdbc.batch_size 就白配了（轨迹同步 2 万点场景差异达数十倍）。
     # useServerPrepStmts=false 配合 rewrite 才能让驱动把 INSERT 拼成多值 VALUES。
-    url: jdbc:mysql://localhost:3306/microtrip?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&useServerPrepStmts=false
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:microtrip}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&useServerPrepStmts=false&useSSL=${DB_USE_SSL:false}
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
     hikari:
+      pool-name: microtrip-hikari
       # 生产实例通常多副本共享一个 MySQL，池上限按「副本数 × 20 < max_connections」估算
       maximum-pool-size: ${DB_POOL_MAX:20}
       minimum-idle: ${DB_POOL_MIN_IDLE:5}
-      connection-timeout: 3000
-      max-lifetime: 1800000   # 必须小于 MySQL wait_timeout，避免用到被服务端悄悄关掉的连接
+      connection-timeout: 3000    # 取连接超时 3s：宁可快速失败，不无限排队
+      validation-timeout: 2000
+      idle-timeout: 600000
+      max-lifetime: 1800000       # 必须小于 MySQL wait_timeout，避免用到被服务端悄悄关掉的连接
   jpa:
     hibernate:
-      ddl-auto: update
+      # 生产建议首次建表后改 validate（见 application-prod.yml），
+      # 避免应用带着 DDL 权限上线，也避免误改列类型。
+      ddl-auto: ${JPA_DDL_AUTO:update}
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect

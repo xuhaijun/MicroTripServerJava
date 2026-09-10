@@ -1,0 +1,74 @@
+# ============================================================
+# 生产 Profile（激活：--spring.profiles.active=prod,mysql,redis）
+# ------------------------------------------------------------
+# 定位：只放「生产必须与开发不同」的项，与 mysql / redis / https
+#       等能力 profile 正交组合，避免把配置散落到多处。
+# 约定：本文件所有值均可被环境变量覆盖，敏感项一律不留默认值。
+# ============================================================
+
+# ---------- 优雅停机 ----------
+# systemd / K8s 发 SIGTERM 后，容器/服务会先停止接收新请求，
+# 等待在途请求（尤其轨迹同步这种长事务）处理完再退出。
+# 不加这一项，重启瞬间正在同步的轨迹会被硬切断，客户端只看到连接重置。
+server:
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:200}
+      min-spare: ${TOMCAT_MIN_SPARE:10}
+    accept-count: ${TOMCAT_ACCEPT_COUNT:100}
+    # 轨迹同步单请求体可达数 MB（2 万点 JSON），放宽上限避免被静默截断
+    max-http-form-post-size: 20MB
+    max-swallow-size: 20MB
+
+spring:
+  lifecycle:
+    # 必须 ≥ 最长业务请求耗时，否则优雅停机窗口没走完就被强杀
+    timeout-per-shutdown-phase: 30s
+  jpa:
+    show-sql: false
+
+# ---------- Actuator 收敛 ----------
+management:
+  # ⚠️ 这里刻意**不写** management.server.address。
+  # 原因：Spring Boot 的该属性要求「同时自定义 management.server.port」才生效，
+  # 同端口场景下它不做任何事 —— 写在配置里会让人误以为已经加固。
+  # 真正生效的收敛在其他两处：
+  #   1) SecurityConfig 的 actuatorAuthorization：健康/信息端点公开，
+  #      metrics / prometheus 仅允许 microtrip.security.actuator-allow-list 中的来源 IP；
+  #   2) Nginx 只放行 /actuator/health/**，其余 /actuator/ 一律 404。
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        # 默认把 metrics 一并暴露：它是「按名字下钻单个指标」的排查入口
+        # （如 /actuator/metrics/hikaricp.connections.pending），
+        # 排查连接池排队、接口 P99 时比只看 prometheus 聚合文本方便得多。
+        # 安全性由 microtrip.security.actuator-allow-list 兜底，不依赖「少暴露」。
+        include: ${MGMT_ENDPOINTS:health,info,metrics,prometheus}
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true       # 暴露 liveness / readiness 子端点供编排探活
+
+# ---------- 生产安全 ----------
+microtrip:
+  jwt:
+    # fail-fast：未通过 JWT_SECRET 注入密钥则拒绝启动。
+    # 否则 JwtSecretService 会退化为「启动时随机生成」，
+    # 多副本间令牌互不认账，且重启即全员掉线。
+    require-externalized: true
+  security:
+    require-https: ${REQUIRE_HTTPS:true}   # 生产默认强制 HTTPS
+  ratelimit:
+    enabled: true
+
+# ---------- 生产日志 ----------
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.microtrip.server: ${LOG_LEVEL_APP:INFO}
+    # 生产不建议开 DEBUG：SQL 与请求体可能含手机号、GPS 坐标等个人信息
+    org.hibernate.SQL: WARN
+    org.springframework.security: WARN

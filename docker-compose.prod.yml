@@ -1,0 +1,164 @@
+# ============================================================
+# 生产编排 · Nginx + 应用 + MySQL + Redis
+# ------------------------------------------------------------
+# 用法（在项目根目录）：
+#   cp .env.example .env && vim .env          # 至少填 DB_PASSWORD / MYSQL_* / JWT_SECRET
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# 与 dev 编排的区别：
+#   1) 应用容器一并纳入，启动顺序受健康检查约束（MySQL 真就绪才起应用）
+#   2) 应用端口**不对宿主机暴露**，唯一入口是 Nginx，避免绕过 TLS 直连
+#   3) 数据卷独立命名（prod 后缀），与开发数据物理隔离，防止误操作串数据
+# ============================================================
+
+name: microtrip-prod
+
+services:
+  # ---------------- 数据库 ----------------
+  mysql:
+    image: mysql:8.0
+    container_name: microtrip-mysql-prod
+    restart: always
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-log-buffer-size=128M
+      - --max-connections=300
+      # 生产打开慢查询日志，便于定位轨迹批量写入的退化
+      - --slow-query-log=1
+      - --long-query-time=1
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?必须在 .env 中设置}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-microtrip}
+      MYSQL_USER: ${MYSQL_USER:?必须在 .env 中设置}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?必须在 .env 中设置}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data-prod:/var/lib/mysql
+      # 首次启动自动执行的初始化脚本目录（可选）
+      - ./deploy/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [backend]
+
+  # ---------------- 缓存 / 令牌吊销 ----------------
+  redis:
+    image: redis:7-alpine
+    container_name: microtrip-redis-prod
+    restart: always
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?必须在 .env 中设置}
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis-data-prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [backend]
+
+  # ---------------- 应用 ----------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-micro-trip-server:1.0.0}
+    container_name: micro-trip-server
+    restart: always
+    depends_on:
+      # 关键：不写 service_started，否则 MySQL 进程起了但还没建库，
+      # 应用一连就拿到 connection refused 直接退出
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod,mysql,redis}
+      # 容器之间用服务名互访，不能用 localhost
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-microtrip}
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-5}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?必须在 .env 中设置（openssl rand -base64 48）}
+      REQUIRE_HTTPS: ${REQUIRE_HTTPS:-true}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      RATELIMIT_ENABLED: ${RATELIMIT_ENABLED:-true}
+      RATELIMIT_CAPACITY: ${RATELIMIT_CAPACITY:-60}
+      RATELIMIT_WINDOW: ${RATELIMIT_WINDOW:-60}
+      ADMIN_BOOTSTRAP_PHONE: ${ADMIN_BOOTSTRAP_PHONE:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+      ADMIN_BOOTSTRAP_NICKNAME: ${ADMIN_BOOTSTRAP_NICKNAME:-超级管理员}
+      VISION_PROVIDER: ${VISION_PROVIDER:-tencent}
+      VISION_SECRET_ID: ${VISION_SECRET_ID:-}
+      VISION_SECRET_KEY: ${VISION_SECRET_KEY:-}
+      VISION_REGION: ${VISION_REGION:-ap-guangzhou}
+      ALIYUN_AK: ${ALIYUN_AK:-}
+      ALIYUN_SK: ${ALIYUN_SK:-}
+      BAIDU_API_KEY: ${BAIDU_API_KEY:-}
+      BAIDU_SECRET_KEY: ${BAIDU_SECRET_KEY:-}
+      LOG_FILE: /app/logs/app.log
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+      MGMT_ENDPOINTS: ${MGMT_ENDPOINTS:-health,info,prometheus}
+      # Actuator 指标端点来源白名单：默认仅回环，即容器外拿不到 metrics/prometheus。
+      # 若要接入 Prometheus（跑在另一个容器/主机），把采集节点 IP 或网段加进来，例如：
+      #   ACTUATOR_ALLOW_LIST=127.0.0.1,172.17.0.0/16
+      # 注意别写 0.0.0.0/0 —— 那等于把内部指标公开。
+      ACTUATOR_ALLOW_LIST: ${ACTUATOR_ALLOW_LIST:-127.0.0.1,::1}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75 -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError}
+    volumes:
+      - ./logs-app:/app/logs
+    # 不暴露 ports：唯一入口是 Nginx，防止绕过 TLS 直连 3000 端口
+    expose:
+      - "3000"
+    networks: [backend, frontend]
+
+  # ---------------- 反向代理 / TLS 终止 ----------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: microtrip-nginx
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx/micro-trip-server.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+      - ./logs-nginx:/var/log/nginx
+    networks: [frontend]
+
+volumes:
+  mysql-data-prod:
+    name: microtrip-mysql-data-prod
+  redis-data-prod:
+    name: microtrip-redis-data-prod
+
+networks:
+  # 前端网络：Nginx ↔ 应用
+  frontend:
+    name: microtrip-frontend
+  # 后端网络：应用 ↔ 数据库/缓存；Nginx 不接此网络，无法直接摸到数据库
+  backend:
+    name: microtrip-backend
+    internal: true

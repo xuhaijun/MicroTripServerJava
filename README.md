@@ -99,46 +99,95 @@ MicroTripServerJava/
 
 ---
 
-## 4. 运行
+## 4. 快速开始
 
-### 4.1 开发 / 直接运行
+> 完整的环境搭建、部署与运维说明见 **[docs/部署指南.md](docs/部署指南.md)**，本节只给最短路径。
+
+### 4.0 先跑环境自检
 ```bash
-mvn spring-boot:run
-# 默认监听 http://localhost:3000
+./scripts/check-env.sh
 ```
+逐项检查 JDK 21 / Maven / Docker / 端口占用 / 配置文件，直接给出「缺什么、怎么补」。
 
-### 4.2 打包运行
+### 4.1 本地开发（`scripts/dev.sh`）
 ```bash
-mvn clean package
-java -jar target/micro-trip-server-boot.jar
+./scripts/dev.sh          # 默认：文件型 H2，零外部依赖，开箱即用
+./scripts/dev.sh mysql    # 连本地 MySQL 容器（需先 ./scripts/infra.sh up）
+./scripts/dev.sh full     # MySQL + Redis，贴近生产拓扑
 ```
+监听 `http://localhost:3000`，接口文档 `/swagger-ui.html`。
 
-> 成品 jar 名为 `micro-trip-server-boot.jar`（`pom.xml` 的 `finalName`），
-> 与目录名区分，避免 Windows 下旧实例占用同名 jar 导致 `repackage` 重命名失败。
-
-### 4.3 切换到 MySQL（生产）
+### 4.2 本地依赖容器（`scripts/infra.sh`）
 ```bash
-java -jar target/micro-trip-server-boot.jar --spring.profiles.active=mysql \
-  -DDB_USERNAME=root -DDB_PASSWORD=****
+./scripts/infra.sh up       # 起 MySQL 8 + Redis 7，自动等待健康检查通过
+./scripts/infra.sh status   # 查看状态
+./scripts/infra.sh mysql    # 进入 MySQL 命令行
+./scripts/infra.sh down     # 停止（保留数据）
+./scripts/infra.sh reset --yes   # 停止并清空数据卷
+```
+默认账号：MySQL `microtrip / microtrip123`（库 `microtrip`），Redis 无密码。可用 `.env` 覆盖。
+
+### 4.3 本地生产态验证（`scripts/run-local.sh`）
+```bash
+./scripts/build.sh                     # 打包（含全量测试）
+./scripts/run-local.sh full --bg       # 用成品 jar + prod profile 起，后台运行
+./scripts/health.sh                    # 全链路冒烟：注册→同步→列表→统计→详情→删除→注销
+./scripts/run-local.sh --stop          # 停止
+```
+这一步是**上服务器前的最后一道验收**：跑的是真实 jar 与生产 profile，能提前暴露
+「开发环境能跑、生产参数起不来」这类问题（例如 prod 下 `JWT_SECRET` 未注入会直接拒绝启动）。
+
+### 4.4 打包与容器镜像
+```bash
+./scripts/build.sh                 # mvn clean package（含测试）
+./scripts/build.sh --skip-tests    # 跳过测试（生产出包请勿跳过）
+./scripts/build.sh --docker        # 一并构建镜像
+```
+成品 jar：`target/micro-trip-server-boot.jar`（`pom.xml` 的 `finalName`，
+与目录名区分，避免 Windows 下旧实例占用同名 jar 导致 `repackage` 重命名失败）。
+
+### 4.5 部署到服务器（`scripts/deploy.sh`）
+```bash
+./scripts/deploy.sh --host root@1.2.3.4 --dry-run        # 先干跑校验，不动服务器
+./scripts/deploy.sh --host root@1.2.3.4                  # jar + systemd
+./scripts/deploy.sh --host root@1.2.3.4 --mode docker    # Docker Compose 全栈
+```
+两条路线的取舍、服务器首次初始化步骤见 [docs/部署指南.md](docs/部署指南.md) 第 6 章。
+
+### 4.6 不使用脚本时的原始命令
+```bash
+mvn spring-boot:run                                          # 开发
+mvn clean package && java -jar target/micro-trip-server-boot.jar   # 打包运行
+java -jar target/micro-trip-server-boot.jar --spring.profiles.active=prod,mysql,redis
 ```
 首次启动 `ddl-auto: update` 会自动建表。
 
----
-
-## 4.4 构建注意事项（Windows）
+### 4.7 构建注意事项（Windows）
 
 - **文件锁**：`mvn package` 的 `spring-boot:repackage` 会先把 `target/*.jar` 重命名为 `*.jar.original` 再生成 fat jar。
   若**已有后端实例在运行并占用该 jar**（端口被占、进程未退出），Windows 无法重命名 → 报
-  `Unable to rename ... to ...original`。**解决**：先停掉旧 `java -jar` 进程，再重新 `mvn package`。
+  `Unable to rename ... to ...original`。**解决**：先停掉旧 `java -jar` 进程（或 `./scripts/run-local.sh --stop`），再重新 `mvn package`。
+- **Git Bash 下必须用 `mvn.cmd`**：sh 版 `mvn` 会把 `MAVEN_HOME` 当 Unix 路径传给 Windows 原生 Java，
+  报 `找不到或无法加载主类 Launcher`。`scripts/_common.sh` 已自动处理，手工敲命令时注意。
 - **H2 2.x 配置**：`application.yml` 默认数据源使用 `jdbc:h2:file:./data/microtrip;DB_CLOSE_DELAY=-1`。
   **不要**再加 `AUTO_SERVER=TRUE` 或 `DB_CLOSE_ON_EXIT=FALSE`——H2 2.x 不允许 `AUTO_SERVER` 与 `DB_CLOSE_ON_EXIT` 同时出现，
   否则启动报 `Feature not supported: "AUTO_SERVER=TRUE && DB_CLOSE_ON_EXIT=FALSE"` 导致无法连接。
 
 ---
 
-### 4.5 监控端点（Actuator + Prometheus）
+### 4.8 监控端点（Actuator + Prometheus）
 
-后端内置 Spring Boot Actuator，默认暴露以下端点（无需鉴权；**生产建议经网关 / IP 白名单保护**，避免指标泄露）：
+后端内置 Spring Boot Actuator，默认暴露以下端点。
+> ⚠️ **访问控制**：健康/信息类端点公开（编排探活依赖），而 `metrics`/`prometheus` 会暴露
+> JVM 堆、连接池等待数、各接口耗时分布等内部信息，**仅允许白名单来源 IP**
+> （`microtrip.security.actuator-allow-list`，默认 `127.0.0.1,::1` 即仅本机）。
+> 判定只依据 TCP 来源地址、**不读 `X-Forwarded-For`**，伪造代理头无法绕过；
+> 留空配置则为「谁都不放行」（fail-closed）。
+> 容器编排下另外由 Nginx 只放行 `/actuator/health/**`，其余 `/actuator/` 直接 404。
+>
+> 注意不要改用 `management.server.address` 做这件事：该属性要求同时自定义
+> `management.server.port` 才生效，同端口场景下是空操作（看起来加固了、其实没有）。
+> 详见 [docs/部署指南.md](docs/部署指南.md) 第 7.3 与 9 章。
 
 | 端点 | 方法 | 用途 |
 | --- | --- | --- |
@@ -272,7 +321,7 @@ java -jar target/micro-trip-server-boot.jar --microtrip.vision.provider=baidu \
 | 鉴权 | 自写 `requireAuth` 中间件 | Spring Security 无状态 JWT 过滤器链 |
 | 登出/封禁 | 仅客户端丢弃 token | 服务端 `RevocationService` 黑名单：主动登出吊销令牌、管理员封禁用户（Redis/内存双实现） |
 | Vision | 腾讯云调用 | `VisionProvider` 抽象 + 按 `microtrip.vision.provider` 注入 tencent/aliyun/baidu（未配置即 501） |
-| 自动化测试 | 无 | Spring Boot 集成测试 `ApiContractTest`（19 用例）+ `TrajectoryOptimizationTest`（13 用例）+ `RateLimitTest`，覆盖 v1 契约/演进项/性能治理回归 |
+| 自动化测试 | 无 | Spring Boot 测试 62 用例：`ApiContractTest`（19，v1 契约与演进项）+ `TrajectoryOptimizationTest`（13，性能治理回归）+ `IpAllowListTest`（17，Actuator 白名单纯逻辑）+ `ActuatorAccessTest`（12，访问控制端到端）+ `RateLimitTest`（1） |
 | 静态数据 | 运行时读 JSON 文件 | 启动时加载 classpath 资源 + 按城市缓存「已注入」结果 |
 | 接口版本化 | 无 | 业务接口同时暴露 `/api/v1/...`（规范）与历史裸路径（Flutter 零改动兼容），为不兼容升级预留空间 |
 | 数据落库 | `points_json` 单 JSON 列 | 保留 `points_json`（契约规范存储）外，新增独立 `trajectory_points` 表，支持 SQL 侧范围检索/密度统计，删轨迹/注销均级联清理 |
