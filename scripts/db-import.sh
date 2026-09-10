@@ -44,17 +44,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-resolve_cli() {
-    local name="$1"
-    if [ -n "${MYSQL_BIN:-}" ] && [ -x "${MYSQL_BIN:-}" ]; then echo "$MYSQL_BIN"; return 0; fi
-    for p in "/c/Program Files/MySQL/MySQL Server 8.4/bin" \
-             "/c/Program Files/MySQL/MySQL Server 8.0/bin"; do
-        [ -f "$p/$name.exe" ] && { echo "$p/$name.exe"; return 0; }
-        [ -f "$p/$name" ]     && { echo "$p/$name";     return 0; }
-    done
-    command -v "$name" && return 0
-    return 1
-}
+# 客户端探测统一用 _common.sh 的 resolve_cli（支持 MYSQL_BIN 反推同目录其他工具）
 
 MYSQL_BIN_RESOLVED="$(resolve_cli mysql)" || die "未找到 mysql 客户端（可设 MYSQL_BIN）"
 MYSQL=("$MYSQL_BIN_RESOLVED" -h"$HOST" -P"$PORT" -u"$DB_USER" -p"$DB_PASS"
@@ -81,6 +71,13 @@ if [ -n "$CSV_FILE" ]; then
     WIN_PATH=$(cygpath -w "$CSV_FILE" 2>/dev/null | sed 's|\\|/|g' || echo "$CSV_FILE")
 
     TMP="tmp_import_$(date +%s)"
+    # 先清历史残留：上次导入中途失败（set -e 直接退出）会留下旧过渡表。
+    # tr -d '\r'：Windows mysql.exe 输出 CRLF，表名带 \r 会让 DROP 静默落空
+    LEFTOVER="$("${MYSQL[@]}" -N -e "SHOW TABLES LIKE 'tmp_import_%';" 2>/dev/null | tr -d '\r')"
+    if [ -n "$LEFTOVER" ]; then
+        warn "发现历史残留过渡表：$LEFTOVER（自动清理）"
+        for t in $LEFTOVER; do "${MYSQL[@]}" -e "DROP TABLE IF EXISTS \`$t\`;"; done
+    fi
     info "① 建过渡表 $TMP（全 varchar，坏数据进不了正式表）"
     "${MYSQL[@]}" -e "DROP TABLE IF EXISTS \`$TMP\`;
         CREATE TABLE \`$TMP\` (_c0 varchar(512),_c1 varchar(512),_c2 varchar(512),

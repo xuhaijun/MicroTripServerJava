@@ -39,23 +39,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ---------------- 定位客户端（与 db-init.sh 同一探测顺序） ----------------
-resolve_cli() {   # $1=程序名（mysql/mysqldump）
-    local name="$1"
-    local dir=""
-    # 从 MYSQL_BIN 反推 bin 目录
-    if [ -n "${MYSQL_BIN:-}" ] && [ -x "${MYSQL_BIN:-}" ]; then
-        echo "$MYSQL_BIN" | sed "s|/mysql$|/$name|; s|/mysql\\.exe$|/$name.exe|"
-        return 0
-    fi
-    for p in "/c/Program Files/MySQL/MySQL Server 8.4/bin" \
-             "/c/Program Files/MySQL/MySQL Server 8.0/bin"; do
-        [ -f "$p/$name.exe" ] && { echo "$p/$name.exe"; return 0; }
-        [ -f "$p/$name" ]     && { echo "$p/$name";     return 0; }
-    done
-    command -v "$name" && return 0
-    return 1
-}
+# ---------------- 定位客户端（探测逻辑在 _common.sh 的 resolve_cli） ----------------
 
 MYSQL_BIN_RESOLVED="$(resolve_cli mysql)" || die "未找到 mysql 客户端（可设 MYSQL_BIN）"
 MYSQL=("$MYSQL_BIN_RESOLVED" -h"$HOST" -P"$PORT" -u"$DB_USER" -p"$DB_PASS"

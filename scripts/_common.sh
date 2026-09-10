@@ -224,6 +224,25 @@ load_dotenv() {
     fi
 }
 
+# ---------- 定位 MySQL 客户端（mysql / mysqldump / mysqld） ----------
+# 探测顺序：MYSQL_BIN 反推 bin 目录 → 常见安装路径 → PATH。
+# 供 backup.sh / db-export.sh 等共用，保证「同一套探测、行为一致」。
+resolve_cli() {   # $1=程序名（如 mysql、mysqldump）
+    local name="$1"
+    if [ -n "${MYSQL_BIN:-}" ] && [ -x "${MYSQL_BIN:-}" ]; then
+        echo "$MYSQL_BIN" | sed "s|/mysql$|/$name|; s|/mysql\\.exe$|/$name.exe|"
+        return 0
+    fi
+    local p
+    for p in "/c/Program Files/MySQL/MySQL Server 8.4/bin" \
+             "/c/Program Files/MySQL/MySQL Server 8.0/bin"; do
+        [ -f "$p/$name.exe" ] && { echo "$p/$name.exe"; return 0; }
+        [ -f "$p/$name" ]     && { echo "$p/$name";     return 0; }
+    done
+    command -v "$name" && return 0
+    return 1
+}
+
 # ---------- 生成随机密钥 ----------
 gen_secret() {
     local n="${1:-48}"

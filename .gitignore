@@ -25,6 +25,8 @@ docker/volumes/
 logs/
 # 本地生产态运行的进程文件与输出（run-local.sh 生成）
 .run/
+# 数据库备份产物（backup.sh 生成，含业务数据严禁入库）
+backups/
 *.log
 application.log
 application.log.*
