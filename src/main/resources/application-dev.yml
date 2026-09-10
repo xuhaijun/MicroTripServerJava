@@ -1,0 +1,31 @@
+# ============================================================
+# 开发环境 Profile（激活：--spring.profiles.active=dev）
+# ------------------------------------------------------------
+# 定位：本机开发 / 联调时使用，与 prod 相反——「怎么方便怎么来」：
+#   - 独立的 H2 文件库（microtrip-dev），不污染测试/生产的 data 目录
+#   - 关闭登录/注册限流：开发中反复重启、反复注册测试账号不会被 429 卡住
+#   - 应用日志开到 DEBUG：排查过滤器链、SQL、限流判定时看得见过程
+#   - JWT 允许启动时随机生成（不用配 JWT_SECRET）
+# 不依赖 MySQL / Redis：redis profile 不激活时吊销服务走内存实现。
+# 与能力 profile 正交组合：如本机装了 Redis 想验证跨实例吊销，可用 dev,redis。
+# ============================================================
+
+spring:
+  datasource:
+    # 独立的开发库文件，与 test / 默认目录隔离，互不覆盖
+    url: jdbc:h2:file:./data/microtrip-dev;DB_CLOSE_DELAY=-1;AUTO_RECONNECT=TRUE
+
+microtrip:
+  # 开发期不限流：反复注册/登录测试账号不会被 429 拦住
+  ratelimit:
+    enabled: ${RATELIMIT_ENABLED:false}
+  jwt:
+    # 开发环境允许随机密钥（重启后 token 失效，但开发期可接受）
+    require-externalized: false
+
+logging:
+  level:
+    # 应用包 DEBUG：过滤器链、限流判定、吊销检查的过程日志全开
+    com.microtrip.server: ${LOG_LEVEL_APP:DEBUG}
+    # SQL 参数日志按需打开（会很吵，默认关）
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:WARN}

@@ -59,6 +59,8 @@ MicroTripServerJava/
 │   │   └── util/Haversine.java
 │   └── resources/
 │       ├── application.yml                       # 默认 H2 配置
+│       ├── application-dev.yml                   # dev profile（限流关/DEBUG 日志/独立 H2 库）
+│       ├── application-test.yml                  # test profile（限流放宽/INFO/独立 H2 库/不强制 HTTPS）
 │       ├── application-mysql.yml                 # MySQL profile
 │       └── data/{food,scenery,shops}.json        # 静态数据集（搬自原 Node 版）
 ```
@@ -102,6 +104,8 @@ MicroTripServerJava/
 ## 4. 快速开始
 
 > 完整的环境搭建、部署与运维说明见 **[docs/部署指南.md](docs/部署指南.md)**，本节只给最短路径。
+> 本机 Windows **无 Docker** 部署（MySQL/Redis 本地安装、Profile 矩阵、日志监控、备份与排障）
+> 见 **[docs/本地环境运维手册.md](docs/本地环境运维手册.md)**。
 
 ### 4.0 先跑环境自检
 ```bash

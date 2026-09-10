@@ -11,7 +11,10 @@ spring:
     # 不加这一项，驱动会把 batch 里的每条 INSERT 拆成独立语句逐条发送，
     # hibernate.jdbc.batch_size 就白配了（轨迹同步 2 万点场景差异达数十倍）。
     # useServerPrepStmts=false 配合 rewrite 才能让驱动把 INSERT 拼成多值 VALUES。
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:microtrip}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&useServerPrepStmts=false&useSSL=${DB_USE_SSL:false}
+    # characterEncoding 必须写 UTF-8（Java 编码名）：Connector/J 8 会把它映射为 utf8mb4；
+    # 直接写 utf8mb4 不是合法 Java 编码名，连接池初始化直接报
+    # "Unsupported character encoding 'utf8mb4'"（本地实测踩到，说明该 profile 之前从未连通过）。
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:microtrip}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&useServerPrepStmts=false&useSSL=${DB_USE_SSL:false}
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}

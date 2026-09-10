@@ -1,0 +1,42 @@
+# ============================================================
+# 测试环境 Profile（激活：--spring.profiles.active=test）
+# ------------------------------------------------------------
+# 定位：给测试/联调部署的**长期运行实例**用（不是 mvn test 的单元测试——
+#       那套由 src/test 的 @TestPropertySource 自己管理 H2 内存库）：
+#   - 独立的 H2 文件库（microtrip-test）：重启数据保留，方便固定测试账号回归
+#   - 限流开启但容量放宽：能验证 429 行为，又不容易被压测脚本误触发
+#   - 日志 INFO：与生产日志行为一致，便于核对「生产上会怎么记」
+#   - 不强制 HTTPS（测试环境常被 App 以 http:// 访问）
+# 与能力 profile 正交组合：test,mysql / test,redis / test,mysql,redis。
+# ============================================================
+
+spring:
+  datasource:
+    # 独立的测试库文件，与 dev / 默认目录隔离
+    url: jdbc:h2:file:./data/microtrip-test;DB_CLOSE_DELAY=-1;AUTO_RECONNECT=TRUE
+
+server:
+  shutdown: graceful
+
+spring.lifecycle:
+  timeout-per-shutdown-phase: 30s
+
+microtrip:
+  jwt:
+    # 测试环境常被多人共用：支持外部化密钥（配了 JWT_SECRET 就用它，没配随机生成）
+    require-externalized: false
+  ratelimit:
+    enabled: ${RATELIMIT_ENABLED:true}
+    # 测试环境容量放宽到 300：足够联调与轻压测，不会误触 429
+    capacity: ${RATELIMIT_CAPACITY:300}
+    window-seconds: ${RATELIMIT_WINDOW:60}
+  security:
+    # 测试环境由 App 以 http:// 直连，不强制 HTTPS
+    require-https: ${REQUIRE_HTTPS:false}
+
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.microtrip.server: ${LOG_LEVEL_APP:INFO}
+    org.hibernate.SQL: WARN
+    org.springframework.security: WARN

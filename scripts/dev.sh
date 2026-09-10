@@ -3,8 +3,11 @@
 # 本地开发启动器（热重启友好，可挂调试器）
 # ------------------------------------------------------------
 # 用法：
-#   ./scripts/dev.sh            # 默认：文件型 H2，零外部依赖，开箱即用
+#   ./scripts/dev.sh            # 默认：文件型 H2，零外部依赖，开箱即用（无 profile）
+#   ./scripts/dev.sh dev        # 开发环境 profile：独立 dev 库 + 关限流 + DEBUG 日志
+#   ./scripts/dev.sh test       # 测试环境 profile：独立 test 库 + 放宽限流 + INFO 日志
 #   ./scripts/dev.sh mysql      # 连本地 MySQL 容器（需先 ./scripts/infra.sh up）
+#   ./scripts/dev.sh redis      # 只挂 Redis（验证吊销服务跨实例共享，仍用 H2）
 #   ./scripts/dev.sh full       # MySQL + Redis（贴近生产拓扑）
 #
 # 与 run-local.sh 的区别：
@@ -27,8 +30,18 @@ PORT="${SERVER_PORT:-3000}"
 case "$MODE" in
     h2)
         PROFILES=""
-        info "模式：H2 文件库（零外部依赖）"
+        info "模式：H2 文件库（零外部依赖，默认配置）"
         dim  "  数据文件：./data/microtrip.mv.db"
+        ;;
+    dev)
+        PROFILES="dev"
+        info "模式：开发环境 profile（独立 dev 库 + 关限流 + DEBUG 日志）"
+        dim  "  数据文件：./data/microtrip-dev.mv.db"
+        ;;
+    test)
+        PROFILES="test"
+        info "模式：测试环境 profile（独立 test 库 + 放宽限流 + INFO 日志）"
+        dim  "  数据文件：./data/microtrip-test.mv.db"
         ;;
     mysql)
         PROFILES="mysql"
@@ -39,6 +52,13 @@ case "$MODE" in
         export DB_USERNAME="${DB_USERNAME:-microtrip}"
         export DB_PASSWORD="${DB_PASSWORD:-microtrip123}"
         dim "  数据源：jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}  as ${DB_USERNAME}"
+        ;;
+    redis)
+        PROFILES="redis"
+        info "模式：H2 + Redis（验证令牌吊销走 Redis，无需 MySQL）"
+        export REDIS_HOST="${REDIS_HOST:-localhost}"
+        export REDIS_PORT="${REDIS_PORT:-6379}"
+        dim "  Redis ：${REDIS_HOST}:${REDIS_PORT}（登出/封禁跨实例共享）"
         ;;
     full)
         PROFILES="mysql,redis"
@@ -58,24 +78,31 @@ case "$MODE" in
         exit 0
         ;;
     *)
-        die "未知模式：$MODE（可选 h2 / mysql / full）"
+        die "未知模式：$MODE（可选 h2 / dev / test / mysql / redis / full）"
         ;;
 esac
 
 # ---------------- 依赖可用性预检 ----------------
-if [ "$MODE" != "h2" ]; then
-    if ! port_in_use "${DB_PORT:-3306}"; then
-        err "MySQL 端口 ${DB_PORT:-3306} 未监听 —— 容器可能没起"
-        dim "  先执行：./scripts/infra.sh up"
-        exit 1
-    fi
-    ok "MySQL 端口可达"
-fi
-if [ "$MODE" = "full" ] && ! port_in_use "${REDIS_PORT:-6379}"; then
-    err "Redis 端口 ${REDIS_PORT:-6379} 未监听"
-    dim "  先执行：./scripts/infra.sh up"
-    exit 1
-fi
+case "$MODE" in
+    mysql|full)
+        if ! port_in_use "${DB_PORT:-3306}"; then
+            err "MySQL 端口 ${DB_PORT:-3306} 未监听 —— 容器可能没起"
+            dim "  先执行：./scripts/infra.sh up"
+            exit 1
+        fi
+        ok "MySQL 端口可达"
+        ;;
+esac
+case "$MODE" in
+    redis|full)
+        if ! port_in_use "${REDIS_PORT:-6379}"; then
+            err "Redis 端口 ${REDIS_PORT:-6379} 未监听"
+            dim "  容器方式：./scripts/infra.sh up；Windows 服务方式：启动 Redis 服务"
+            exit 1
+        fi
+        ok "Redis 端口可达"
+        ;;
+esac
 
 # ---------------- 端口占用预检 ----------------
 if port_in_use "$PORT"; then

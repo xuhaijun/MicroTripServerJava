@@ -93,6 +93,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- Lettuce 连接池的硬依赖：application-redis.yml 开了 spring.data.redis.lettuce.pool.enabled=true，
+             没有 commons-pool2 时 redis profile 直接启动失败（NoClassDefFoundError:
+             org/apache/commons/pool2/impl/GenericObjectPoolConfig）。本地实测踩到后补上。 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
 
         <!-- 嵌入式数据库 H2（默认，文件型，零外部依赖） -->
         <dependency>
