@@ -47,3 +47,7 @@ nbproject/
 Thumbs.db
 desktop.ini
 exports/
+
+# ==================== WinSW 服务二进制（install-app-service.bat 自动下载，不入库） ====================
+scripts/WinSW.exe
+scripts/microtrip-server.exe

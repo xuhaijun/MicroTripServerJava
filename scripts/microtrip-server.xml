@@ -1,0 +1,12 @@
+<service>
+  <id>MicroTripServer</id>
+  <name>MicroTrip Server (Java Backend)</name>
+  <description>MicroTrip backend - Spring Boot embedded Tomcat, port 3000, profile=prod,mysql,redis</description>
+  <executable>scripts\start-app.bat</executable>
+  <workingdirectory>D:\FlutterProjects\MicroTripServerJava</workingdirectory>
+  <logpath>D:\FlutterProjects\MicroTripServerJava\.run</logpath>
+  <logmode>roll</logmode>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec" />
+  <priority>Normal</priority>
+</service>
